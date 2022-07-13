@@ -16,12 +16,14 @@ contract EscrowPaymentSplitter {
     mapping(address => Escrow) public escrowPaymentMap;
 
     struct Escrow{
+        uint orderId;
         string paymentToken;
         uint256 escrowAmount;
         address royaltyAddress;
         // Royalty Fee: 1.5% = 15 / 1000: royaltyFeeBase1000 is 15
         uint256 royaltyFeeBase1000;
         address sellerAddress;
+        uint timestamp;
         string hmac;
         bool payout;
     }
@@ -92,12 +94,12 @@ contract EscrowPaymentSplitter {
         return manager;
     }
 
-    function addEscrowPaymentInfo(string memory _paymentToken, uint256 _escrowAmount, address _royaltyAddress, uint256 _royaltyFeeBase1000, address _sellerAddress, string memory _hmac) public {
+    function addEscrowPaymentInfo(uint _orderId, string memory _paymentToken, uint256 _escrowAmount, address _royaltyAddress, uint256 _royaltyFeeBase1000, address _sellerAddress, uint _timestamp, string memory _hmac) public {
         require(keccak256(bytes(_paymentToken)) == keccak256(bytes(genSymbol)) || keccak256(bytes(_paymentToken)) == keccak256(bytes(ethSymbol)), "Not provided paymentToken, ETH or GEN");
         uint _minAmount = 1*(10**12);
         require(_escrowAmount >= _minAmount, "You need to send at least 0.000001 ETH");
         require(_royaltyFeeBase1000 < 1000, "Invalid royaltyFeeBase1000");
-        escrowPaymentMap[msg.sender] = Escrow(_paymentToken, _escrowAmount, _royaltyAddress, _royaltyFeeBase1000, _sellerAddress, _hmac, false);
+        escrowPaymentMap[msg.sender] = Escrow(_orderId, _paymentToken, _escrowAmount, _royaltyAddress, _royaltyFeeBase1000, _sellerAddress, _timestamp, _hmac, false);
     }
     
     // GEN
