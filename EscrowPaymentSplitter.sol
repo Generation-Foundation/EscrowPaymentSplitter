@@ -14,8 +14,7 @@ contract EscrowPaymentSplitter {
     string public constant ethSymbol = "ETH";
 
     mapping(address => Escrow) public escrowPaymentMap;
-
-    struct Escrow{
+    struct Escrow {
         uint orderId;
         string paymentToken;
         uint256 escrowAmount;
@@ -28,7 +27,25 @@ contract EscrowPaymentSplitter {
         bool payout;
     }
 
+
+    mapping(uint => BidRival[]) public bidRivalMap;
+    struct BidRival {
+        address buyerAddress;
+    }
+
     event TransferReceived(address _from, uint _amount);
+    event EscrowPaymentCompleted(
+        address _buyerAddress, 
+        uint _orderId, 
+        string _paymentToken, 
+        uint256 _escrowAmount, 
+        address _royaltyAddress, 
+        uint256 _royaltyFeeBase1000, 
+        address _sellerAddress, 
+        uint _timestamp, 
+        string _hmac, 
+        bool _payout
+    );
 
     receive() payable external {
         // 0.000001
@@ -39,6 +56,30 @@ contract EscrowPaymentSplitter {
         require(escrowPaymentMap[msg.sender].escrowAmount == msg.value, "Not matched escrow amount");
 
         escrowPaymentMap[msg.sender].payout = true;
+
+        emit EscrowPaymentCompleted(
+            msg.sender,
+            escrowPaymentMap[msg.sender].orderId,
+            escrowPaymentMap[msg.sender].paymentToken,
+            escrowPaymentMap[msg.sender].escrowAmount,
+            escrowPaymentMap[msg.sender].royaltyAddress,
+            escrowPaymentMap[msg.sender].royaltyFeeBase1000,
+            escrowPaymentMap[msg.sender].sellerAddress,
+            escrowPaymentMap[msg.sender].timestamp,
+            escrowPaymentMap[msg.sender].hmac,
+            escrowPaymentMap[msg.sender].payout
+        );
+
+        address royaltyAddress = escrowPaymentMap[msg.sender].royaltyAddress;
+        uint royaltyFeeBase1000 = escrowPaymentMap[msg.sender].royaltyFeeBase1000;
+        address sellerAddress = escrowPaymentMap[msg.sender].sellerAddress;
+
+        // delete
+        for (uint i = 0; i < bidRivalMap[escrowPaymentMap[msg.sender].orderId].length; i++) {
+            address buyerAddress = bidRivalMap[escrowPaymentMap[msg.sender].orderId][i].buyerAddress;
+            delete escrowPaymentMap[buyerAddress];
+        }
+        delete bidRivalMap[escrowPaymentMap[msg.sender].orderId];
         
         // pinetree fee 2.5%
         uint distributedAmountForPinetree = (msg.value).mul(25).div(1000);
@@ -46,14 +87,14 @@ contract EscrowPaymentSplitter {
         emit TransferReceived(pinetreeAdminAddress, distributedAmountForPinetree);
         
         // royalty
-        uint distributedAmountForRoyalty = (msg.value).mul(escrowPaymentMap[msg.sender].royaltyFeeBase1000).div(1000);
-        payable(escrowPaymentMap[msg.sender].royaltyAddress).transfer(distributedAmountForRoyalty);
-        emit TransferReceived(escrowPaymentMap[msg.sender].royaltyAddress, distributedAmountForRoyalty);
+        uint distributedAmountForRoyalty = (msg.value).mul(royaltyFeeBase1000).div(1000);
+        payable(royaltyAddress).transfer(distributedAmountForRoyalty);
+        emit TransferReceived(royaltyAddress, distributedAmountForRoyalty);
         
         // seller
         uint distributedAmountForSeller = (msg.value).sub(distributedAmountForPinetree).sub(distributedAmountForRoyalty);
-        payable(escrowPaymentMap[msg.sender].sellerAddress).transfer(distributedAmountForSeller);
-        emit TransferReceived(escrowPaymentMap[msg.sender].sellerAddress, distributedAmountForSeller);
+        payable(sellerAddress).transfer(distributedAmountForSeller);
+        emit TransferReceived(sellerAddress, distributedAmountForSeller);
     }
 
     constructor(address _addressToken, address _pinetreeAdminAddress) { 
@@ -94,12 +135,15 @@ contract EscrowPaymentSplitter {
         return manager;
     }
 
+    // Every user can add an escrow to map by using Pinetree.
+    // Pinetree verifies hmac to transfer ownership of NFT.
     function addEscrowPaymentInfo(uint _orderId, string memory _paymentToken, uint256 _escrowAmount, address _royaltyAddress, uint256 _royaltyFeeBase1000, address _sellerAddress, uint _timestamp, string memory _hmac) public {
         require(keccak256(bytes(_paymentToken)) == keccak256(bytes(genSymbol)) || keccak256(bytes(_paymentToken)) == keccak256(bytes(ethSymbol)), "Not provided paymentToken, ETH or GEN");
         uint _minAmount = 1*(10**12);
         require(_escrowAmount >= _minAmount, "You need to send at least 0.000001 ETH");
         require(_royaltyFeeBase1000 < 1000, "Invalid royaltyFeeBase1000");
         escrowPaymentMap[msg.sender] = Escrow(_orderId, _paymentToken, _escrowAmount, _royaltyAddress, _royaltyFeeBase1000, _sellerAddress, _timestamp, _hmac, false);
+        bidRivalMap[_orderId].push(BidRival(msg.sender));
     }
     
     // GEN
@@ -117,16 +161,40 @@ contract EscrowPaymentSplitter {
 
         escrowPaymentMap[msg.sender].payout = true;
 
+        emit EscrowPaymentCompleted(
+            msg.sender,
+            escrowPaymentMap[msg.sender].orderId,
+            escrowPaymentMap[msg.sender].paymentToken,
+            escrowPaymentMap[msg.sender].escrowAmount,
+            escrowPaymentMap[msg.sender].royaltyAddress,
+            escrowPaymentMap[msg.sender].royaltyFeeBase1000,
+            escrowPaymentMap[msg.sender].sellerAddress,
+            escrowPaymentMap[msg.sender].timestamp,
+            escrowPaymentMap[msg.sender].hmac,
+            escrowPaymentMap[msg.sender].payout
+        );
+
+        address royaltyAddress = escrowPaymentMap[msg.sender].royaltyAddress;
+        uint royaltyFeeBase1000 = escrowPaymentMap[msg.sender].royaltyFeeBase1000;
+        address sellerAddress = escrowPaymentMap[msg.sender].sellerAddress;
+
+        // delete
+        for (uint i = 0; i < bidRivalMap[escrowPaymentMap[msg.sender].orderId].length; i++) {
+            address buyerAddress = bidRivalMap[escrowPaymentMap[msg.sender].orderId][i].buyerAddress;
+            delete escrowPaymentMap[buyerAddress];
+        }
+        delete bidRivalMap[escrowPaymentMap[msg.sender].orderId];
+        
         // pinetree fee 1.5%
         // If the GEN is not deposited, it will be reverted.
         uint256 amountForPinetree = _amount.mul(15).div(1000);
         token.transferFrom(msg.sender, pinetreeAdminAddress, amountForPinetree);
         
-        uint256 amountForRoyalty = _amount.mul(escrowPaymentMap[msg.sender].royaltyFeeBase1000).div(1000);
-        token.transferFrom(msg.sender, escrowPaymentMap[msg.sender].royaltyAddress, amountForRoyalty);
+        uint256 amountForRoyalty = _amount.mul(royaltyFeeBase1000).div(1000);
+        token.transferFrom(msg.sender, royaltyAddress, amountForRoyalty);
 
         uint256 amountRemained = _amount.sub(amountForPinetree).sub(amountForRoyalty);
-        token.transferFrom(msg.sender, escrowPaymentMap[msg.sender].sellerAddress, amountRemained);
+        token.transferFrom(msg.sender, sellerAddress, amountRemained);
     }
 
     function getEthBalance() public view returns (uint) {
